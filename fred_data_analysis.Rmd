@@ -1,0 +1,310 @@
+---
+title: "FRED Data Downlaod"
+author: "Vikrant Kumar Chandan"
+date: "4/19/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r  include=FALSE}
+library(tidyverse)
+library(rvest)
+library(lubridate)
+library(stringr)
+library(ggplot2)
+library(purrr)
+library(fredr)
+library(pracma)
+library(TTR)
+library(stringr)
+library(xlsx)
+library(readxl)
+```
+
+
+```{r warning = FALSE}
+#source the api keys from Parameter file
+source("fred_parameters.R")
+#set up API connection with fredr package
+fredr_set_key(api.key.fred)
+tsy_tips_tickers
+```
+
+
+```{r warning = FALSE}
+#Get the list to tickers from param file.
+tickers <- str_split(tsy_tips_tickers,",", simplify = TRUE)
+tickers
+for (t in tickers){
+  print(t)
+}
+
+```
+
+
+```{r warning = FALSE}
+#library(readxl)
+#DGS1MO.data <- read_excel("DGS1MO.xls")
+#head(DGS1MO.data)
+#str(DGS1MO.data)
+#DGS1MO.data$date = as.Date(DGS1MO.data$date)
+#str(DGS1MO.data)
+
+```
+
+
+```{r warning = FALSE}
+#Functions to plot different types of TS plots
+
+#function to plot simple moving average
+plot_savg_ts <- function(df, fredtkr, ttl)
+{
+  #title <- paste(fredtkr, " & Simple Moving Avg")
+  #title
+  plot_smvg <- df %>% 
+    ggplot(aes( x = date)) + 
+    geom_line(aes(y = value, color = "value"), linetype = "solid", size = 0.5) +
+    geom_line(aes(y = smavg14, color = "smavg14"), linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = smavg21, color = "smavg21"), linetype = "dashed", size = 0.5) + 
+    geom_line(aes(y = smavg63, color = "smavg63"), linetype = "dashed", size = 0.5) + 
+    geom_line(aes(y = smavg125, color = "smavg125"),linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = smavg252,  color = "smavg252"), linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = smavg756, color = "smavg756"), linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = smavg1260, color = "smavg1260"), linetype = "dashed", size = 0.5) +
+    ggtitle(ttl) + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Legend") +
+    xlab("Date") + ylab("Time Series data") +
+  scale_colour_manual("", 
+                      breaks = c("value", "smavg14", "smavg21", "smavg63", "smavg125", "smavg252", "smavg756", "smavg1260"),
+                      values = c("red", "green", "blue", "orange", "purple", "grey", "yellow", "black")) 
+
+  return(plot_smvg)
+}
+
+#function to plot exponential moving average
+plot_eavg_ts <- function(df, fredtkr, ttl)
+{
+  #title <- paste(fredtkr, " & Simple Moving Avg")
+  #title
+  plot_emvg <- df %>% 
+    ggplot(aes( x = date)) + 
+    geom_line(aes(y = value, color = "value"), linetype = "solid", size = 0.5) +
+    geom_line(aes(y = emavg14, color = "emavg14"), linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = emavg21, color = "emavg21"), linetype = "dashed", size = 0.5) + 
+    geom_line(aes(y = emavg63, color = "emavg63"), linetype = "dashed", size = 0.5) + 
+    geom_line(aes(y = emavg125, color = "emavg125"),linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = emavg252,  color = "emavg252"), linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = emavg756, color = "emavg756"), linetype = "dashed", size = 0.5) +
+    geom_line(aes(y = emavg1260, color = "emavg1260"), linetype = "dashed", size = 0.5) +
+    ggtitle(ttl) + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Legend") +
+    xlab("Date") + ylab("Time Series data") +
+  scale_colour_manual("", 
+                      breaks = c("value", "emavg14", "emavg21", "emavg63", "emavg125", "emavg252", "emavg756", "emavg1260"),
+                      values = c("red", "green", "blue", "orange", "purple", "grey", "yellow", "black")) 
+
+  return(plot_emvg)
+}
+
+#function to plot moving SD
+plot_msd_ts <- function(df, fredtkr, ttl)
+{
+  #title <- paste(fredtkr, " & Simple Moving Avg")
+  #title
+  plot_msd <- df %>% 
+    ggplot(aes( x = date)) + 
+    geom_line(aes(y = as.numeric(value), color = "value"), linetype = "solid", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(msd63), color = "msd63"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(msd125), color = "msd125"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(msd252), color = "msd252"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(msd756), color = "msd756"),linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(msd1260),  color = "msd1260"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    ggtitle(ttl) + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Legend") +
+    xlab("Date") + ylab("Time Series data") +
+  scale_colour_manual("", 
+                      breaks = c("value", "msd63", "msd125", "msd252", "msd756", "msd1260"),
+                      values = c("red", "green", "blue", "orange", "purple", "grey")) 
+
+  return(plot_msd)
+}
+
+#function to plot moving zscore
+plot_zscore_ts <- function(df, fredtkr, ttl)
+{
+  plot_zscore <- df %>% 
+    ggplot(aes( x = date)) + 
+    geom_line(aes(y = as.numeric(value), color = "value"), linetype = "solid", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mzscore63), color = "mzscore63"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mzscore125), color = "mzscore125"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(mzscore252), color = "mzscore252"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(mzscore756), color = "mzscore756"),linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mzscore1260),  color = "mzscore1260"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    ggtitle(ttl) + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Legend") +
+    xlab("Date") + ylab("Time Series data") +
+  scale_colour_manual("", 
+                      breaks = c("value", "mzscore63", "mzscore125", "mzscore252", "mzscore756", "mzscore1260"),
+                      values = c("red", "green", "blue", "orange", "purple", "grey")) 
+
+  return(plot_zscore)
+}
+
+#function to plot moving hi
+plot_mhi_ts <- function(df, fredtkr, ttl)
+{
+  plot_mhi <- df %>% 
+    ggplot(aes( x = date)) + 
+    geom_line(aes(y = as.numeric(value), color = "value"), linetype = "solid", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mhi63), color = "mhi63"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mhi125), color = "mhi125"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(mhi252), color = "mhi252"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(mhi756), color = "mhi756"),linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mhi1260),  color = "mhi1260"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    ggtitle(ttl) + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Legend") +
+    xlab("Date") + ylab("Time Series data") +
+  scale_colour_manual("", 
+                      breaks = c("value", "mhi63", "mhi125", "mhi252", "mhi756", "mhi1260"),
+                      values = c("red", "green", "blue", "orange", "purple", "grey")) 
+
+  return(plot_mhi)
+}
+
+#function to plot moving low
+plot_mlow_ts <- function(df, fredtkr, ttl)
+{
+  plot_mlow <- df %>% 
+    ggplot(aes( x = date)) + 
+    geom_line(aes(y = as.numeric(value), color = "value"), linetype = "solid", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mlow63), color = "mlow63"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mlow125), color = "mlow125"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(mlow252), color = "mlow252"), linetype = "dashed", size = 0.5, na.rm = TRUE) + 
+    geom_line(aes(y = as.numeric(mlow756), color = "mlow756"),linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    geom_line(aes(y = as.numeric(mlow1260),  color = "mlow1260"), linetype = "dashed", size = 0.5, na.rm = TRUE) +
+    ggtitle(ttl) + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Legend") +
+    xlab("Date") + ylab("Time Series data") +
+  scale_colour_manual("", 
+                      breaks = c("value", "mlow63", "mlow125", "mlow252", "mlow756", "mlow1260"),
+                      values = c("red", "green", "blue", "orange", "purple", "grey")) 
+
+  return(plot_mlow)
+}
+
+```
+
+
+```{r warning = FALSE}
+#Look through all tickers read from the parameter file and then read the respective data file abd plot diffent types of TS plots. This is for TS for which moving averages , exponential moving averages, moving hi, moving low, moving sd, moving zscore are there in respective data files, downloade and calculated before. This expects the data file names as <ticker>.xls and the data file columns names as used below in the functions. These column names generated dynamically while dowloding the data from fred and calculating these derived data.
+for (tkr in tickers)
+  {
+    #library(tidyverse)
+    #tkr <- 'DFII30'
+    #dfname = read_excel(paste(tkr,".xls", sep = ""))
+  
+  #tkr <- 'DGS1MO'
+    dfname = read_excel(paste(tkr,".xls", sep = ""), .name_repair = "minimal")
+    dfname <- dfname[,-1]
+    
+    #plotting mavg
+    plt_smavg <- plot_savg_ts(dfname, paste(tkr),  paste(tkr, " & Moving average", sep = ""))
+    print(plt_smavg)
+    
+    if(!(min(year(dfname$date)) > 2009) ){ # check for the data available for this range then only plot
+    plt_smavg_f1 <- plot_savg_ts(dfname %>% filter((year(date) >= 2007) & (year(date) <= 2009)), paste(tkr), paste(tkr, " & Moving average for Year between 2007 & 2009", sep = ""))
+    print(plt_smavg_f1)
+    }
+    
+    plt_smavg_f2 <- plot_savg_ts(dfname %>% filter((year(date) >= 2019)), paste(tkr), paste(tkr, " & Moving average for Year >= 2019", sep = ""))
+    print(plt_smavg_f2)
+    
+    #plotting eavg
+    plt_emavg <- plot_eavg_ts(dfname, paste(tkr),  paste(tkr, " & Exp. Moving average", sep = ""))
+    print(plt_emavg)
+    
+    if(!(min(year(dfname$date)) > 2009) ){ # check for the data available for this range then only plot
+    plt_emavg_f1 <- plot_eavg_ts(dfname %>% filter((year(date) >= 2007) & (year(date) <= 2009)), paste(tkr), paste(tkr, " & Exp. Moving average for Year between 2007 & 2009", sep = ""))
+    print(plt_emavg_f1)
+    }
+    
+    plt_emavg_f2 <- plot_eavg_ts(dfname %>% filter((year(date) >= 2019)), paste(tkr), paste(tkr, " & Exp. Moving average for Year >= 2019", sep = ""))
+    print(plt_emavg_f2)
+    
+    #plotting msd
+    plt_msd <- plot_msd_ts(dfname, paste(tkr),  paste(tkr, " & Moving SD", sep = ""))
+    print(plt_msd)
+    
+    if(!(min(year(dfname$date)) > 2009) ){ # check for the data available for this range then only plot
+    plt_msd_f1 <- plot_msd_ts(dfname %>% filter((year(date) >= 2007) & (year(date) <= 2009)), paste(tkr), paste(tkr, " & Moving SD for Year between 2007 & 2009", sep = ""))
+    print(plt_msd_f1)
+    }
+    
+    plt_msd_f2 <- plot_msd_ts(dfname %>% filter((year(date) >= 2019)), paste(tkr), paste(tkr, " & Moving SD for Year >= 2019", sep = ""))
+    print(plt_msd_f2)
+    
+    #plotting zscore
+    plt_zscore <- plot_zscore_ts(dfname, paste(tkr),  paste(tkr, " & Moving Zscore", sep = ""))
+    print(plt_zscore)
+    
+    if(!(min(year(dfname$date)) > 2009) ){ # check for the data available for this range then only plot
+    plt_zscore_f1 <- plot_zscore_ts(dfname %>% filter((year(date) >= 2007) & (year(date) <= 2009)), paste(tkr), paste(tkr, " & Moving Zscore for Year between 2007 & 2009", sep = ""))
+    print(plt_zscore_f1)
+    }
+    
+    plt_zscore_f2 <- plot_zscore_ts(dfname %>% filter((year(date) >= 2019)), paste(tkr), paste(tkr, " & Moving Zscore for Year >= 2019", sep = ""))
+    print(plt_zscore_f2)
+    
+    #plotting mhi
+    plt_mhi <- plot_mhi_ts(dfname, paste(tkr),  paste(tkr, " & Moving Hi", sep = ""))
+    print(plt_mhi)
+    
+    if(!(min(year(dfname$date)) > 2009) ){ # check for the data available for this range then only plot
+    plt_mhi_f1 <- plot_mhi_ts(dfname %>% filter((year(date) >= 2007) & (year(date) <= 2009)), paste(tkr), paste(tkr, " & Moving Hi for Year between 2007 & 2009",sep = ""))
+    print(plt_mhi_f1)
+    }
+    
+    plt_mhi_f2 <- plot_mhi_ts(dfname %>% filter((year(date) >= 2019)), paste(tkr), paste(tkr, " & Moving Hi for Year >= 2019", sep = ""))
+    print(plt_mhi_f2)
+    
+    #plotting mlow
+    plt_mlow <- plot_mlow_ts(dfname, paste(tkr),  paste(tkr, " & Moving Low", sep = ""))
+    print(plt_mlow)
+    
+    if(!(min(year(dfname$date)) > 2009) ){ # check for the data available for this range then only plot
+    plt_mlow_f1 <- plot_mlow_ts(dfname %>% filter((year(date) >= 2007) & (year(date) <= 2009)), paste(tkr), paste(tkr, " & Moving Low for Year between 2007 & 2009", sep = ""))
+    print(plt_mlow_f1)
+    }
+    
+    plt_mlow_f2 <- plot_mlow_ts(dfname %>% filter((year(date) >= 2019)), paste(tkr), paste(tkr, " & Moving Low for Year >= 2019", sep = ""))
+    print(plt_mlow_f2)
+  
+    
+}
+```
+
+
+
+```{r warning = FALSE}
+
+
+```
+
+
+```{r warning = FALSE}
+
+
+```
+

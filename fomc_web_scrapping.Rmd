@@ -1,0 +1,248 @@
+---
+title: "FOMC Web scrapping"
+author: "Vikrant Kumar Chandan"
+date: "4/19/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r  include=FALSE}
+library(tidyverse)
+library(rvest)
+library(lubridate)
+library(stringr)
+library(ggplot2)
+library(purrr)
+library(fredr)
+library(pracma)
+library(TTR)
+library(stringr)
+library(xlsx)
+library(readxl)
+library(tidytext)
+library(wordcloud)
+library(extrafont)
+loadfonts(device = "win")
+```
+
+
+```{r warning = FALSE}
+fomc_Cal_url <- "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+fomc_cal_page <- read_html(fomc_Cal_url)
+```
+
+
+```{r warning = FALSE}
+#FOMC Minutes of meeting (mom) urls. It gets urls for mom from 2015 till date
+mom_url <- fomc_cal_page %>%
+  html_nodes("#article") %>%
+  html_nodes("a") %>%
+  html_attr("href") %>%
+  .[grepl("minutes\\d+.htm", .)] %>%
+  paste0("https://www.federalreserve.gov",.)
+
+```
+
+
+```{r warning = FALSE}
+#After building the urls, we read in the pages & retrieve the minutes of meeting text...
+fomc_mom <- map(mom_url, ~
+                  read_html(.x) %>%
+                  html_nodes("p") %>%
+                  html_text())
+
+```
+
+
+```{r warning = FALSE}
+#creating data frame with date, FOMC Minutes text and text from "Participants’ Views on Current Conditions and the Economic Outlook" section for our analysis
+fomc_mom_df <- tibble(
+  date = str_extract(mom_url,"\\d+"),
+  mom_text = map_chr(fomc_mom, ~  paste(gsub("[\n\r]" , " ", .x), collapse = "")),
+  participants_view = str_extract(mom_text, "(?<=Current Conditions and the Economic Outlook).*(?=Committee Policy Action)")
+) %>% 
+  mutate_at(vars(mom_text, participants_view), funs(str_remove_all(., "\\d{1,}[\\,\\.]{1}\\d{1,}|\\d+")))
+
+head(fomc_mom_df)
+```
+
+
+```{r warning = FALSE}
+#unnest tokens of the words in participants view section and removing the stop words. getting tokenized data
+tok_participants_view <- fomc_mom_df %>%
+  select(-mom_text) %>% 
+  mutate(date = ymd(date)) %>%
+  unnest_tokens(word, participants_view) %>%
+  anti_join(stop_words)
+
+head(tok_participants_view)
+
+#financial words that we want to analyze upon
+financial_words <- paste("financial", "yield", "equity", "bond",
+                   "loan", "credit", "stocks", "dollar",
+                   "oil", "asset", "curve", "commodity",
+                   sep = "|")
+financial_words
+```
+
+
+```{r warning = FALSE}
+#Adding finacial words count to data frame
+tok_participants_view_fin_count <- tok_participants_view %>%
+  mutate(financial_word = if_else(str_detect(word, financial_words), 1, 0),
+         financial_bigram = case_when(
+           str_detect(word, "financial") & str_detect(lead(word, 1), "market|condition") ~ 1,
+           str_detect(word, "equity|stock") & str_detect(lead(word, 1), "price") ~ 1,
+           str_detect(word, "market") & str_detect(lead(word, 1), "participants") ~ 1,
+           str_detect(word, "money") & str_detect(lead(word, 1), "market") ~ 1,
+           TRUE ~ 0),
+         financial_fin = if_else(financial_word == 1 | financial_bigram == 1, 1, 0)
+         )
+head(tok_participants_view_fin_count, n=1000)
+sum(tok_participants_view_fin_count$financial_word)
+sum(tok_participants_view_fin_count$financial_bigram)
+sum(tok_participants_view_fin_count$financial_fin)
+```
+
+```{r warning = FALSE}
+#Plotting of the number finacial words that appeared in participants view section over time.
+tok_participants_view_fin_count %>% 
+  group_by(date) %>%
+  summarize(fin_word = sum(financial_fin)) %>%
+  ggplot(aes(date, fin_word)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "orange") +
+  geom_smooth(se = FALSE, color = "#7f8e6f", size = 0.5) +
+  scale_x_date(date_breaks = "4 months", date_labels = "%b '%y",expand = c(0.01,.01)) +
+  labs(x = "FOMC Meeting dates",
+       y = "Number of times finacial words was mentioned",
+       title = 'Financial Words Appeared In Participants View section of FOMC Meeting Minutes',
+       caption = 'Only includes text from the "Participants\' View on Current Conditions and the Economic Outlook" section\nSource: FOMC Website') +
+  theme(panel.grid.minor = element_blank(),
+        axis.text = element_text(color = "black"),
+        plot.caption = element_text(face = "italic", hjust = 0))
+```
+
+
+```{r warning = FALSE}
+#Covid-19 related words that we want to analyze upon
+covid19_words <- paste("coronavirus", "covid19", "covid-19",sep = "|")
+covid19_words
+
+#Adding covid-19 related word counts to the data frame.
+tok_participants_view_c19_count <- tok_participants_view %>%
+  mutate(covid19_word = if_else(str_detect(word, covid19_words), 1, 0)
+         )
+head(tok_participants_view_c19_count, n=100)
+sum(tok_participants_view_c19_count$covid19_word)
+
+#Plotting covid 19 related worlds that came into in participants view section of FOMC meeting over time
+tok_participants_view_c19_count %>% 
+  group_by(date) %>%
+  summarize(c19_word = sum(covid19_word)) %>%
+  ggplot(aes(date, c19_word)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "orange") +
+  #geom_smooth(se = FALSE, color = "#7f8e6f", size = 0.5) +
+  scale_x_date(date_breaks = "4 months", date_labels = "%b '%y",expand = c(0.01,.01)) +
+  labs(x = "FOMC Meeting dates",
+       y = "Number of times coronavirus words was mentioned",
+       title = 'Coronavirus Word Appeared In Participants View section of FOMC Minutes',
+       caption = 'Only includes text from the "Participants\' View on Current Conditions and the Economic Outlook" section\nSource: FOMC Website') +
+  theme(panel.grid.minor = element_blank(),
+        axis.text = element_text(color = "black"),
+        plot.caption = element_text(face = "italic", hjust = 0))
+
+```
+
+
+
+```{r warning = FALSE}
+#Unemployment rate words that we want to analyze upon
+ur_words <- paste("unemployment",sep = "|")
+ur_words
+
+#Adding covid-19 related word counts to the data frame.
+tok_participants_view_ur_count <- tok_participants_view %>%
+  mutate(ur_word = if_else(str_detect(word, ur_words), 1, 0),
+         ur_bigram = case_when(
+           str_detect(word, "unemployment") & str_detect(lead(word, 1), "rate") ~ 1,
+           TRUE ~ 0),
+         ur_rate = if_else(ur_word == 1 | ur_bigram == 1, 1, 0)
+         )
+head(tok_participants_view_ur_count, n=100)
+sum(tok_participants_view_ur_count$ur_word)
+sum(tok_participants_view_ur_count$ur_bigram)
+sum(tok_participants_view_ur_count$ur_rate)
+
+#Plotting covid 19 related worlds that came into in participants view section of FOMC meeting over time
+tok_participants_view_ur_count %>% 
+  group_by(date) %>%
+  summarize(ur_word = sum(ur_rate)) %>%
+  ggplot(aes(date, ur_word)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "orange") +
+  geom_smooth(se = FALSE, color = "#7f8e6f", size = 0.5) +
+  scale_x_date(date_breaks = "4 months", date_labels = "%b '%y",expand = c(0.01,.01)) +
+  labs(x = "FOMC Meeting dates",
+       y = "No. of times unemployemnt word was mentioned",
+       title = 'Unemployemnt word Appeared In Participants View section of FOMC Minutes',
+       caption = 'Only includes text from the "Participants\' View on Current Conditions and the Economic Outlook" section\nSource: FOMC Website') +
+  theme(panel.grid.minor = element_blank(),
+        axis.text = element_text(color = "black"),
+        plot.caption = element_text(face = "italic", hjust = 0))
+
+```
+
+
+```{r warning = FALSE}
+#Word count and word cloud from 2015 till date
+tok_participants_view_top_10 <- tok_participants_view %>% filter(word!="participants")   %>% count(word, sort = TRUE) %>% head(n=10)
+tok_participants_view_top_50 <- tok_participants_view %>% filter(word!="participants")   %>% count(word, sort = TRUE) %>% head(n=50)
+tok_participants_view_top_100 <- tok_participants_view %>% filter(word!="participants")   %>% count(word, sort = TRUE) %>% head(n=100)
+
+# Creating a word cloud of top 10 word
+tok_participants_view_top_10 %>% with(wordcloud(word, n, max.words = 100))
+tok_participants_view_top_10
+
+# Creating a word cloud of top 50 word
+tok_participants_view_top_50 %>% with(wordcloud(word, n, max.words = 100))
+tok_participants_view_top_50
+
+# Creating a word cloud of top 100 word
+tok_participants_view_top_100 %>% with(wordcloud(word, n, max.words = 100))
+tok_participants_view_top_100
+
+```
+
+
+```{r warning = FALSE}
+#bigram Word count from 2015 till date
+tok_participants_view_bi_top <- fomc_mom_df %>% #filter(word!="participants") %>%
+  unnest_tokens(bigram, participants_view, token = "ngrams", n=2) %>%
+  separate(bigram, c("word1","word2"), sep = " ") %>%
+  anti_join(stop_words, by = c("word1" = "word")) %>%
+  anti_join(stop_words, by = c("word2" = "word")) %>%
+  filter(word1!="participants") %>%
+  filter(word2!="participants") %>%
+  count(word1, word2, sort = TRUE) 
+
+#fomc_mom_df$participants_view
+tok_participants_view_bi_top
+
+tok_participants_view_bi_top_20 <- head(tok_participants_view_bi_top, n=20) %>% mutate(combined_word = paste(word1, word2, sep = " "))
+tok_participants_view_bi_top_20
+
+# Creating a word cloud of top 20 bigrams
+tok_participants_view_bi_top_20 %>% with(wordcloud(combined_word, n, max.words = 100))
+
+```
+
+
+

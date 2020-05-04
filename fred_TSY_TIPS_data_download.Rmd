@@ -1,0 +1,161 @@
+---
+title: "FRED Data Downlaod"
+author: "Vikrant Kumar Chandan"
+date: "4/19/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r  include=FALSE}
+library(tidyverse)
+library(rvest)
+library(lubridate)
+library(stringr)
+library(ggplot2)
+library(purrr)
+library(fredr)
+library(pracma)
+library(TTR)
+library(stringr)
+library(xlsx)
+```
+
+
+```{r warning = FALSE}
+#source the api keys from Parameter file
+source("fred_parameters.R")
+#set up API connection with fredr package
+fredr_set_key(api.key.fred)
+tsy_tips_tickers
+```
+
+
+```{r warning = FALSE}
+#Get the list to tickers from param file.
+tickers <- str_split(tsy_tips_tickers,",", simplify = TRUE)
+tickers
+for (t in tickers){
+  print(t)
+}
+
+```
+
+
+```{r warning = FALSE}
+#Function to download fred time series data set
+fred_ts <- function(s_id, freq = 'd', obs_start = NULL, obs_end = NULL) {
+  fredr(series_id = s_id, frequency = freq, observation_start = obs_start, observation_end = obs_end)
+}
+
+#Function to calculate moving average
+fred_ts_mavg <- function(df, mavgday = 14,  mavgtype = 's'){
+  mavg_col_name <- paste(mavgtype,"mavg",mavgday, sep = "")
+  df <- mutate(df, !!mavg_col_name := movavg(df$value, as.numeric(mavgday), type = mavgtype))
+  return(df) 
+}
+
+#Function to calculate moving hi
+fred_ts_mhi <- function(df, mhi = 63){
+  mhi_col_name <- paste("mhi",mhi, sep = "")
+  df <- mutate(df, !!mhi_col_name := runMax(df$value, n = mhi ))
+  return(df) 
+}
+
+#Function to calculate moving low
+fred_ts_mlow <- function(df, mlow = 63){
+  mlow_col_name <- paste("mlow",mlow, sep = "")
+  df <- mutate(df, !!mlow_col_name := runMin(df$value, n = mlow ))
+  return(df) 
+}
+
+#Function to calculate moving SD 
+fred_ts_msd <- function(df, msd = 63){
+  msd_col_name <- paste("msd",msd, sep = "")
+  df <- mutate(df, !!msd_col_name := runSD(df$value, n = msd ))
+  return(df) 
+}
+
+
+```
+
+
+```{r warning = FALSE}
+for (tkr in tickers) {
+  
+    #fred_ts('DGS1MO','d', as.Date('2020-04-01'), as.Date('2020-04-10'))
+    
+    #Call function to download fred data. Can pass from date and to date. If you don't then it will download all available data
+    fred_data <- fred_ts(tkr,'d') 
+    fred_data <- na.omit(fred_data) #remove NA
+    fred_data
+    
+    #Simple Moving average calculation and adding to the current data frame.
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 14,  mavgtype = 's')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 21,  mavgtype = 's')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 63,  mavgtype = 's')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 125,  mavgtype = 's')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 252,  mavgtype = 's')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 756,  mavgtype = 's')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 1260,  mavgtype = 's')
+    
+    #Exponetial Moving average calculation and adding to the current data frame.
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 14,  mavgtype = 'e')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 21,  mavgtype = 'e')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 63,  mavgtype = 'e')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 125,  mavgtype = 'e')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 252,  mavgtype = 'e')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 756,  mavgtype = 'e')
+    fred_data <- fred_ts_mavg(fred_data, mavgday = 1260,  mavgtype = 'e')
+    
+    #Moving hi calculation and adding to the current data frame.
+    fred_data <- fred_ts_mhi(fred_data, mhi = 63)
+    fred_data <- fred_ts_mhi(fred_data, mhi = 125)
+    fred_data <- fred_ts_mhi(fred_data, mhi = 252)
+    fred_data <- fred_ts_mhi(fred_data, mhi = 756)
+    fred_data <- fred_ts_mhi(fred_data, mhi = 1260)
+    
+    #Moving low calculation and adding to the current data frame.
+    fred_data <- fred_ts_mlow(fred_data, mlow = 63)
+    fred_data <- fred_ts_mlow(fred_data, mlow = 125)
+    fred_data <- fred_ts_mlow(fred_data, mlow = 252)
+    fred_data <- fred_ts_mlow(fred_data, mlow = 756)
+    fred_data <- fred_ts_mlow(fred_data, mlow = 1260)
+    
+    #Moving SD calculation and adding to the current data frame.
+    fred_data <- fred_ts_msd(fred_data, msd = 63)
+    fred_data <- fred_ts_msd(fred_data, msd = 125)
+    fred_data <- fred_ts_msd(fred_data, msd = 252)
+    fred_data <- fred_ts_msd(fred_data, msd = 756)
+    fred_data <- fred_ts_msd(fred_data, msd = 1260)
+    
+    #Moving Zscore calculation and adding to the current data frame.
+    fred_data <- fred_data %>% mutate(mzscore63 = (fred_data$value - fred_data$smavg63) / fred_data$msd63 )
+    fred_data <- fred_data %>% mutate(mzscore125 = (fred_data$value - fred_data$smavg125) / fred_data$msd125)
+    fred_data <- fred_data %>% mutate(mzscore252 = (fred_data$value - fred_data$smavg252) / fred_data$msd252)
+    fred_data <- fred_data %>% mutate(mzscore756 = (fred_data$value - fred_data$smavg756) / fred_data$msd756)
+    fred_data <- fred_data %>% mutate(mzscore1260 = (fred_data$value - fred_data$smavg1260) / fred_data$msd1260)
+    
+    row.names(fred_data) <- NULL
+    
+    #fred_data
+    print("before start writing")
+    print(tkr)
+    file_name = paste(tkr,".xls")
+    write.xlsx(fred_data, file = file_name, sheetName = tkr, append = TRUE)
+    print("after writing")
+}
+
+```
+
+
+```{r warning = FALSE}
+#write.xlsx(fred_data, file = "FRED_TSY_TIPS_Rates.xlsx", sheetName = "DGS1")
+```
+
+
